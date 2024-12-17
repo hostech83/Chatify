@@ -1,18 +1,70 @@
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { StyleSheet, View, KeyboardAvoidingView, Platform } from "react-native";
 import { GiftedChat, Bubble } from "react-native-gifted-chat";
+import {
+  collection,
+  addDoc,
+  onSnapshot,
+  query,
+  orderBy,
+} from "firebase/firestore";
 
 // Destructure name and background from route.params
-const Chat = ({ route, navigation }) => {
-  const { name, background } = route.params;
+const Chat = ({ route, navigation, db, isConnected }) => {
+  const { name, background, userID } = route.params;
   const [messages, setMessages] = useState([]);
 
+  const { db } = useContext(DatabaseContext);
+
+  useEffect(() => {
+    navigation.setOptions({ title: name });
+    let unsubMessages;
+    if (isConnected) {
+      const q = query(collection(db, "messages"), orderBy("createdAt", "desc"));
+      unsubMessages = onSnapshot(q, (querySnapshot) => {
+        const newMessages = querySnapshot.docs.map((doc) => ({
+          _id: doc.id,
+          ...doc.data(),
+          createdAt: doc.data().createdAt.toDate(),
+        }));
+        cacheMessages(newMessages);
+        setMessages(newMessages);
+      });
+    } else {
+      loadCachedMessages();
+    }
+    return () => {
+      if (unsubMessages) unsubMessages();
+      if (soundObject) soundObject.unloadAsync();
+    };
+  }, [isConnected, db, name]);
+
   // Function to handle sending new messages
-  const onSend = (newMessages) => {
-    setMessages((previousMessages) =>
-      GiftedChat.append(previousMessages, newMessages)
-    );
-  };
+  const onSend = useCallback(
+    async (newMessages = []) => {
+      const message = newMessages[0];
+      try {
+        const messageToAdd = {
+          _id: message._id,
+          createdAt: message.createdAt,
+          user: {
+            _id: userID,
+            name: name,
+          },
+        };
+
+        if (message.text) messageToAdd.text = message.text;
+        if (message.image) messageToAdd.image = message.image;
+        if (message.location) messageToAdd.location = message.location;
+        if (message.audio) messageToAdd.audio = message.audio;
+
+        await addDoc(collection(db, "messages"), messageToAdd);
+      } catch (error) {
+        console.error("Error adding message to Firestore:", error);
+      }
+    },
+    [db, userID, name]
+  );
 
   // Function to customize the appearance of message bubbles
   const renderBubble = (props) => {
@@ -66,7 +118,8 @@ const Chat = ({ route, navigation }) => {
         renderBubble={renderBubble}
         onSend={(messages) => onSend(messages)}
         user={{
-          _id: 1,
+          _id: userID,
+          name: username,
         }}
       />
       {Platform.OS === "android" && <KeyboardAvoidingView behavior="height" />}
