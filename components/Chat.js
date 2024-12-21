@@ -1,6 +1,13 @@
-import { useContext, useEffect, useState } from "react";
-import { StyleSheet, View, KeyboardAvoidingView, Platform } from "react-native";
-import { GiftedChat, Bubble } from "react-native-gifted-chat";
+import { useEffect, useState } from "react";
+import {
+  StyleSheet,
+  View,
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  TouchableOpacity,
+} from "react-native";
+import { GiftedChat, Bubble, InputToolbar } from "react-native-gifted-chat";
 import {
   collection,
   addDoc,
@@ -8,132 +15,97 @@ import {
   query,
   orderBy,
 } from "firebase/firestore";
+import ContextDatabase from "../ContextDatabase";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-// Destructure name and background from route.params
-const Chat = ({ route, navigation, db, isConnected }) => {
+const Chat = ({ route, navigation, isConnected, storage, db }) => {
   const { name, background, userID } = route.params;
   const [messages, setMessages] = useState([]);
 
-  const { db } = useContext(DatabaseContext);
+  const onSend = async (newMessages) => {
+    setMessages((prevMessages) => GiftedChat.append(prevMessages, newMessages));
+    try {
+      for (let message of newMessages) {
+        await addDoc(collection(db, "messages"), {
+          ...message,
+          createdAt: message.createdAt,
+        });
+      }
+    } catch (error) {
+      console.error("Error sending message:", error);
+    }
+  };
 
   useEffect(() => {
     navigation.setOptions({ title: name });
     let unsubMessages;
+
     if (isConnected) {
       const q = query(collection(db, "messages"), orderBy("createdAt", "desc"));
-      unsubMessages = onSnapshot(q, (querySnapshot) => {
-        const newMessages = querySnapshot.docs.map((doc) => ({
-          _id: doc.id,
+      unsubMessages = onSnapshot(q, (snapshot) => {
+        const newMessages = snapshot.docs.map((doc) => ({
+          id: doc.id,
           ...doc.data(),
-          createdAt: doc.data().createdAt.toDate(),
+          createdAt: new Date(doc.data().createdAt),
         }));
-        cacheMessages(newMessages);
         setMessages(newMessages);
+        cacheMessages(newMessages);
       });
     } else {
       loadCachedMessages();
     }
-    return () => {
-      if (unsubMessages) unsubMessages();
-      if (soundObject) soundObject.unloadAsync();
-    };
+
+    return () => unsubMessages && unsubMessages();
   }, [isConnected, db, name]);
 
-  // Function to handle sending new messages
-  const onSend = useCallback(
-    async (newMessages = []) => {
-      const message = newMessages[0];
-      try {
-        const messageToAdd = {
-          _id: message._id,
-          createdAt: message.createdAt,
-          user: {
-            _id: userID,
-            name: name,
-          },
-        };
+  const renderInputToolbar = (props) =>
+    isConnected ? <InputToolbar {...props} /> : null;
 
-        if (message.text) messageToAdd.text = message.text;
-        if (message.image) messageToAdd.image = message.image;
-        if (message.location) messageToAdd.location = message.location;
-        if (message.audio) messageToAdd.audio = message.audio;
-
-        await addDoc(collection(db, "messages"), messageToAdd);
-      } catch (error) {
-        console.error("Error adding message to Firestore:", error);
-      }
-    },
-    [db, userID, name]
+  const renderBubble = (props) => (
+    <Bubble
+      {...props}
+      wrapperStyle={{
+        right: { backgroundColor: "#000" },
+        left: { backgroundColor: "#FFF" },
+      }}
+    />
   );
 
-  // Function to customize the appearance of message bubbles
-  const renderBubble = (props) => {
-    return (
-      <Bubble
-        {...props}
-        wrapperStyle={{
-          right: {
-            backgroundColor: "#000",
-          },
-          left: {
-            backgroundColor: "#FFF",
-          },
-        }}
-      />
-    );
+  const cacheMessages = async (messagesToCache) => {
+    try {
+      await AsyncStorage.setItem("messages", JSON.stringify(messagesToCache));
+    } catch (error) {
+      console.error("Error caching messages:", error);
+    }
   };
 
-  // Initialize messages when the component mounts
-  useEffect(() => {
-    setMessages([
-      {
-        _id: 1,
-        text: "Welcome to the chat! (System Message)",
-        createdAt: new Date(),
-        system: true,
-      },
-      {
-        _id: 2,
-        text: "Hello developer",
-        createdAt: new Date(),
-        user: {
-          _id: 2,
-          name: "React Native",
-          avatar: "https://placeimg.com/140/140/any",
-        },
-      },
-    ]);
-  }, []);
+  const loadCachedMessages = async () => {
+    try {
+      const cached = await AsyncStorage.getItem("messages");
+      setMessages(cached ? JSON.parse(cached) : []);
+    } catch (error) {
+      console.error("Error loading cached messages:", error);
+    }
+  };
 
-  // Update the navigation bar title when the `name` changes
-  useEffect(() => {
-    navigation.setOptions({ title: name });
-  }, [name, navigation]);
+  console.log("I am in the chat screen");
 
-  // Render the chat interface
   return (
-    <View style={[styles.container, { backgroundColor: background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: background }]}>
       <GiftedChat
         messages={messages}
+        onSend={onSend}
         renderBubble={renderBubble}
-        onSend={(messages) => onSend(messages)}
-        user={{
-          _id: userID,
-          name: username,
-        }}
+        renderInputToolbar={renderInputToolbar}
+        user={{ _id: userID, name }}
       />
       {Platform.OS === "android" && <KeyboardAvoidingView behavior="height" />}
-    </View>
+    </SafeAreaView>
   );
 };
 
-// Define styles for the component
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: "Center",
-    alignItems: "center",
-  },
+  container: { flex: 1, justifyContent: "center", alignItems: "center" },
 });
 
 export default Chat;
