@@ -1,4 +1,3 @@
-//components/Chat.js
 import { useEffect, useState, useContext } from "react";
 import {
   StyleSheet,
@@ -6,7 +5,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
-  TouchableOpacity,
 } from "react-native";
 import { GiftedChat, Bubble, InputToolbar } from "react-native-gifted-chat";
 import {
@@ -16,21 +14,27 @@ import {
   query,
   orderBy,
 } from "firebase/firestore";
-import ContextDatabase from "../ContextDatabase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import ContextDatabase from "../ContextDatabase";
 
 const Chat = ({ route, navigation, isConnected, storage }) => {
   const { name, background, userID } = route.params;
   const [messages, setMessages] = useState([]);
   const { db } = useContext(ContextDatabase);
 
+  // Handle sending messages
   const onSend = async (newMessages) => {
-    setMessages((prevMessages) => GiftedChat.append(prevMessages, newMessages));
     try {
+      // Append new messages to the chat
+      setMessages((prevMessages) =>
+        GiftedChat.append(prevMessages, newMessages)
+      );
+
+      // Add messages to Firestore
       for (let message of newMessages) {
         await addDoc(collection(db, "messages"), {
           ...message,
-          createdAt: message.createdAt,
+          createdAt: message.createdAt || new Date(), // Ensure `createdAt` is valid
         });
       }
     } catch (error) {
@@ -38,17 +42,40 @@ const Chat = ({ route, navigation, isConnected, storage }) => {
     }
   };
 
+  // Cache messages locally
+  const cacheMessages = async (messagesToCache) => {
+    try {
+      await AsyncStorage.setItem("messages", JSON.stringify(messagesToCache));
+    } catch (error) {
+      console.error("Error caching messages:", error);
+    }
+  };
+
+  // Load cached messages when offline
+  const loadCachedMessages = async () => {
+    try {
+      const cached = await AsyncStorage.getItem("messages");
+      setMessages(cached ? JSON.parse(cached) : []);
+    } catch (error) {
+      console.error("Error loading cached messages:", error);
+    }
+  };
+
+  // Fetch messages from Firestore or cache
   useEffect(() => {
     navigation.setOptions({ title: name });
-    let unsubMessages;
 
+    let unsubscribeMessages;
     if (isConnected) {
-      const q = query(collection(db, "messages"), orderBy("createdAt", "desc"));
-      unsubMessages = onSnapshot(q, (snapshot) => {
+      const messagesQuery = query(
+        collection(db, "messages"),
+        orderBy("createdAt", "desc")
+      );
+      unsubscribeMessages = onSnapshot(messagesQuery, (snapshot) => {
         const newMessages = snapshot.docs.map((doc) => ({
-          id: doc.id,
+          _id: doc.id,
           ...doc.data(),
-          createdAt: new Date(doc.data().createdAt),
+          createdAt: doc.data().createdAt?.toDate?.() || new Date(),
         }));
         setMessages(newMessages);
         cacheMessages(newMessages);
@@ -57,12 +84,14 @@ const Chat = ({ route, navigation, isConnected, storage }) => {
       loadCachedMessages();
     }
 
-    return () => unsubMessages && unsubMessages();
-  }, [isConnected, db, name]);
+    return () => unsubscribeMessages && unsubscribeMessages();
+  }, [isConnected, db, name, navigation]);
 
+  // Custom input toolbar based on connectivity
   const renderInputToolbar = (props) =>
     isConnected ? <InputToolbar {...props} /> : null;
 
+  // Customize the message bubble
   const renderBubble = (props) => (
     <Bubble
       {...props}
@@ -73,45 +102,29 @@ const Chat = ({ route, navigation, isConnected, storage }) => {
     />
   );
 
-  const cacheMessages = async (messagesToCache) => {
-    try {
-      await AsyncStorage.setItem("messages", JSON.stringify(messagesToCache));
-    } catch (error) {
-      console.error("Error caching messages:", error);
-    }
-  };
-
-  const loadCachedMessages = async () => {
-    try {
-      const cached = await AsyncStorage.getItem("messages");
-      setMessages(cached ? JSON.parse(cached) : []);
-    } catch (error) {
-      console.error("Error loading cached messages:", error);
-    }
-  };
-
   return (
-    <SafeAreaView style={{ flex: 1 }}>
+    <SafeAreaView style={[styles.container, { backgroundColor: background }]}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={{ flex: 1 }}
       >
-        <View style={{ flex: 1 }}>
-          <GiftedChat
-            messages={messages}
-            onSend={onSend}
-            renderBubble={renderBubble}
-            renderInputToolbar={renderInputToolbar}
-            user={{ _id: userID, name }}
-          />
-        </View>
+        <GiftedChat
+          messages={messages}
+          onSend={onSend}
+          renderBubble={renderBubble}
+          renderInputToolbar={renderInputToolbar}
+          user={{ _id: userID, name }}
+        />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
 
+// Define styles
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: "center", alignItems: "center" },
+  container: {
+    flex: 1,
+  },
 });
 
 export default Chat;
