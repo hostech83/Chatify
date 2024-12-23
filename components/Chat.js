@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+//components/Chat.js
+import { useEffect, useState, useContext } from "react";
 import {
   StyleSheet,
   View,
@@ -18,9 +19,10 @@ import {
 import ContextDatabase from "../ContextDatabase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const Chat = ({ route, navigation, isConnected, storage, db }) => {
+const Chat = ({ route, navigation, isConnected, storage }) => {
   const { name, background, userID } = route.params;
   const [messages, setMessages] = useState([]);
+  const { db } = useContext(ContextDatabase);
 
   const onSend = async (newMessages) => {
     setMessages((prevMessages) => GiftedChat.append(prevMessages, newMessages));
@@ -88,18 +90,22 @@ const Chat = ({ route, navigation, isConnected, storage, db }) => {
     }
   };
 
-  console.log("I am in the chat screen");
-
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: background }]}>
-      <GiftedChat
-        messages={messages}
-        onSend={onSend}
-        renderBubble={renderBubble}
-        renderInputToolbar={renderInputToolbar}
-        user={{ _id: userID, name }}
-      />
-      {Platform.OS === "android" && <KeyboardAvoidingView behavior="height" />}
+    <SafeAreaView style={{ flex: 1 }}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={{ flex: 1 }}
+      >
+        <View style={{ flex: 1 }}>
+          <GiftedChat
+            messages={messages}
+            onSend={onSend}
+            renderBubble={renderBubble}
+            renderInputToolbar={renderInputToolbar}
+            user={{ _id: userID, name }}
+          />
+        </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };

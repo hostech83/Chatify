@@ -1,3 +1,4 @@
+//components/Start.js
 import React, { useState, useContext } from "react";
 import {
   StyleSheet,
@@ -14,7 +15,7 @@ import {
   ScrollView,
   Alert,
 } from "react-native";
-import { getAuth, signInAnonymously } from "firebase/auth";
+import { signInAnonymously } from "firebase/auth";
 import ContextDatabase from "../ContextDatabase";
 
 const color = [
@@ -48,8 +49,6 @@ const Start = ({ navigation }) => {
         Alert.alert("Unable to sign in, try later again");
       });
   };
-
-  console.log("I am in the start screen");
 
   return (
     <SafeAreaView style={styles.container} id="start-container">

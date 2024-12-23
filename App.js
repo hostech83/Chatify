@@ -1,3 +1,4 @@
+//app.js
 import { useEffect, useState } from "react";
 import { StatusBar } from "expo-status-bar";
 import { StyleSheet, Alert } from "react-native";
