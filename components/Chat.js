@@ -2,6 +2,7 @@ import { useEffect, useState, useContext } from "react";
 import {
   StyleSheet,
   View,
+  TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
@@ -16,6 +17,7 @@ import {
 } from "firebase/firestore";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import ContextDatabase from "../ContextDatabase";
+import CustomActions from "./CustomActions";
 
 const Chat = ({ route, navigation, isConnected, storage }) => {
   const { name, background, userID } = route.params;
@@ -102,6 +104,10 @@ const Chat = ({ route, navigation, isConnected, storage }) => {
     />
   );
 
+  const renderCustomActions = (props) => {
+    return <CustomActions {...props} />;
+  };
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: background }]}>
       <KeyboardAvoidingView
@@ -111,6 +117,7 @@ const Chat = ({ route, navigation, isConnected, storage }) => {
         <GiftedChat
           messages={messages}
           onSend={onSend}
+          renderActions={renderCustomActions}
           renderBubble={renderBubble}
           renderInputToolbar={renderInputToolbar}
           user={{ _id: userID, name }}

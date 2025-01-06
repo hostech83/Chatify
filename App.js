@@ -19,6 +19,7 @@ import { getStorage } from "firebase/storage";
 import { useNetInfo } from "@react-native-community/netinfo";
 import Start from "./components/Start";
 import Chat from "./components/Chat";
+import * as ImagePicker from "expo-image-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LogBox } from "react-native";
 
