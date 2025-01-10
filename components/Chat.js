@@ -6,6 +6,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
+  Text,
 } from "react-native";
 import { GiftedChat, Bubble, InputToolbar } from "react-native-gifted-chat";
 import {
@@ -17,6 +18,7 @@ import {
 } from "firebase/firestore";
 import MapView from "react-native-maps";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Audio } from "expo-av";
 import ContextDatabase from "../ContextDatabase";
 import CustomActions from "./CustomActions";
 
@@ -24,20 +26,19 @@ const Chat = ({ route, navigation, isConnected, storage }) => {
   const { name, background, userID } = route.params;
   const [messages, setMessages] = useState([]);
   const { db } = useContext(ContextDatabase);
+  let soundObject = null;
 
   // Handle sending messages
   const onSend = async (newMessages) => {
     try {
-      // Append new messages to the chat
       setMessages((prevMessages) =>
         GiftedChat.append(prevMessages, newMessages)
       );
 
-      // Add messages to Firestore
       for (let message of newMessages) {
         await addDoc(collection(db, "messages"), {
           ...message,
-          createdAt: message.createdAt || new Date(), // Ensure `createdAt` is valid
+          createdAt: message.createdAt || new Date(),
         });
       }
     } catch (error) {
@@ -90,19 +91,17 @@ const Chat = ({ route, navigation, isConnected, storage }) => {
     return () => unsubscribeMessages && unsubscribeMessages();
   }, [isConnected, db, name, navigation]);
 
-  //offline message in the input toolbar if there is no network connection
   const renderInputToolbar = (props) => {
-    if (isConnected === true) {
+    if (isConnected) {
       return <InputToolbar {...props} />;
-    } else {
-      return (
-        <View style={styles.offlineInputToolbar}>
-          <Text style={styles.offlineTextInput}>No network connection</Text>
-        </View>
-      );
     }
+    return (
+      <View style={styles.offlineInputToolbar}>
+        <Text style={styles.offlineTextInput}>No network connection</Text>
+      </View>
+    );
   };
-  // Customize the message bubble
+
   const renderBubble = (props) => (
     <Bubble
       {...props}
@@ -113,26 +112,42 @@ const Chat = ({ route, navigation, isConnected, storage }) => {
     />
   );
 
-  const renderCustomActions = (props) => {
-    return (
-      <CustomActions
-        {...props}
-        storage={storage}
-        userID={userID}
-        name={name}
-        onSend={onSend}
-        wrapperStyle={styles.customActionsWrapper}
-        iconTextStyle={styles.customActionsIconText}
-      />
-    );
-  };
+  const renderAudioBubble = (props) => (
+    <TouchableOpacity
+      style={styles.audioBubble}
+      onPress={async () => {
+        try {
+          if (soundObject) soundObject.unloadAsync();
+          const { sound } = await Audio.Sound.createAsync({
+            uri: props.currentMessage.audio,
+          });
+          soundObject = sound;
+          await sound.playAsync();
+        } catch (error) {
+          console.error("Error playing audio:", error);
+        }
+      }}
+    >
+      <Text style={styles.audioText}>Play Sound</Text>
+    </TouchableOpacity>
+  );
+
+  const renderCustomActions = (props) => (
+    <CustomActions
+      {...props}
+      storage={storage}
+      userID={userID}
+      name={name}
+      onSend={onSend}
+    />
+  );
 
   const renderCustomView = (props) => {
     const { currentMessage } = props;
     if (currentMessage.location) {
       return (
         <MapView
-          style={{ width: 150, height: 100, borderRadius: 13, margin: 3 }}
+          style={styles.mapView}
           region={{
             latitude: currentMessage.location.latitude,
             longitude: currentMessage.location.longitude,
@@ -142,22 +157,13 @@ const Chat = ({ route, navigation, isConnected, storage }) => {
         />
       );
     }
+    return null;
+  };
 
-    return (
-      <SafeAreaView style={[styles.container, { backgroundColor: background }]}>
-        {Platform.OS === "android" ? (
-          <KeyboardAvoidingView behavior="height" style={{ flex: 1 }}>
-            <GiftedChat
-              messages={messages}
-              onSend={onSend}
-              renderActions={renderCustomActions}
-              renderCustomView={renderCustomView}
-              renderBubble={renderBubble}
-              renderInputToolbar={renderInputToolbar}
-              user={{ _id: userID, name }}
-            />
-          </KeyboardAvoidingView>
-        ) : (
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: background }]}>
+      {Platform.OS === "android" ? (
+        <KeyboardAvoidingView behavior="height" style={{ flex: 1 }}>
           <GiftedChat
             messages={messages}
             onSend={onSend}
@@ -165,40 +171,56 @@ const Chat = ({ route, navigation, isConnected, storage }) => {
             renderCustomView={renderCustomView}
             renderBubble={renderBubble}
             renderInputToolbar={renderInputToolbar}
+            renderMessageAudio={renderAudioBubble}
             user={{ _id: userID, name }}
           />
-        )}
-      </SafeAreaView>
-    );
-  };
-
-  // Define styles
-  const styles = StyleSheet.create({
-    container: {
-      flex: 1,
-    },
-    keyboardAvoidingView: {
-      flex: 1,
-    },
-    offlineTextInput: {
-      color: "black",
-      fontSize: 16,
-    },
-    offlineInputToolbar: {
-      backgroundColor: "lightgrey",
-      padding: 10,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    customActionsWrapper: {
-      alignSelf: "center",
-      marginLeft: 0,
-      marginRight: 4,
-      marginBottom: 0,
-    },
-    customActionsIconText: {
-      fontSize: 20,
-    },
-  });
+        </KeyboardAvoidingView>
+      ) : (
+        <GiftedChat
+          messages={messages}
+          onSend={onSend}
+          renderActions={renderCustomActions}
+          renderCustomView={renderCustomView}
+          renderBubble={renderBubble}
+          renderInputToolbar={renderInputToolbar}
+          renderMessageAudio={renderAudioBubble}
+          user={{ _id: userID, name }}
+        />
+      )}
+    </SafeAreaView>
+  );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  offlineTextInput: {
+    color: "black",
+    fontSize: 16,
+  },
+  offlineInputToolbar: {
+    backgroundColor: "lightgrey",
+    padding: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mapView: {
+    width: 150,
+    height: 100,
+    borderRadius: 13,
+    margin: 3,
+  },
+  audioBubble: {
+    backgroundColor: "#FF0",
+    borderRadius: 10,
+    margin: 5,
+    padding: 10,
+  },
+  audioText: {
+    textAlign: "center",
+    color: "black",
+  },
+});
+
 export default Chat;
