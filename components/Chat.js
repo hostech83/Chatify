@@ -1,14 +1,23 @@
-import { useEffect, useState, useContext } from "react";
+import React, { useEffect, useState, useContext, useCallback } from "react";
 import {
   StyleSheet,
   View,
-  TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
   Text,
+  TouchableOpacity,
 } from "react-native";
-import { GiftedChat, Bubble, InputToolbar } from "react-native-gifted-chat";
+import {
+  GiftedChat,
+  Bubble,
+  InputToolbar,
+  Composer,
+  Send,
+  SystemMessage,
+  Day,
+  Message,
+} from "react-native-gifted-chat";
 import {
   collection,
   addDoc,
@@ -16,138 +25,252 @@ import {
   query,
   orderBy,
 } from "firebase/firestore";
-import MapView from "react-native-maps";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Audio } from "expo-av";
 import ContextDatabase from "../ContextDatabase";
 import CustomActions from "./CustomActions";
+import MapView from "react-native-maps";
+import colorMatrix from "../colorMatrix";
+import { Audio } from "expo-av";
 
 const Chat = ({ route, navigation, isConnected, storage }) => {
-  const { name, background, userID } = route.params;
+  const { name, chatBackgroundColor, userID } = route.params;
   const [messages, setMessages] = useState([]);
   const { db } = useContext(ContextDatabase);
   let soundObject = null;
 
-  // Handle sending messages
-  const onSend = async (newMessages) => {
-    try {
-      setMessages((prevMessages) =>
-        GiftedChat.append(prevMessages, newMessages)
-      );
+  const selectedColorScheme = colorMatrix.find(
+    (color) => color.backgroundColor === chatBackgroundColor
+  );
 
-      for (let message of newMessages) {
-        await addDoc(collection(db, "messages"), {
-          ...message,
-          createdAt: message.createdAt || new Date(),
-        });
-      }
-    } catch (error) {
-      console.error("Error sending message:", error);
-    }
-  };
-
-  // Cache messages locally
-  const cacheMessages = async (messagesToCache) => {
-    try {
-      await AsyncStorage.setItem("messages", JSON.stringify(messagesToCache));
-    } catch (error) {
-      console.error("Error caching messages:", error);
-    }
-  };
-
-  // Load cached messages when offline
-  const loadCachedMessages = async () => {
-    try {
-      const cached = await AsyncStorage.getItem("messages");
-      setMessages(cached ? JSON.parse(cached) : []);
-    } catch (error) {
-      console.error("Error loading cached messages:", error);
-    }
-  };
-
-  // Fetch messages from Firestore or cache
   useEffect(() => {
     navigation.setOptions({ title: name });
-
-    let unsubscribeMessages;
+    let unsubMessages;
     if (isConnected) {
-      const messagesQuery = query(
-        collection(db, "messages"),
-        orderBy("createdAt", "desc")
-      );
-      unsubscribeMessages = onSnapshot(messagesQuery, (snapshot) => {
-        const newMessages = snapshot.docs.map((doc) => ({
+      const q = query(collection(db, "messages"), orderBy("createdAt", "desc"));
+      unsubMessages = onSnapshot(q, (querySnapshot) => {
+        const newMessages = querySnapshot.docs.map((doc) => ({
           _id: doc.id,
           ...doc.data(),
-          createdAt: doc.data().createdAt?.toDate?.() || new Date(),
+          createdAt: doc.data().createdAt.toDate(),
         }));
-        setMessages(newMessages);
         cacheMessages(newMessages);
+        setMessages(newMessages);
       });
     } else {
       loadCachedMessages();
     }
+    return () => {
+      if (unsubMessages) unsubMessages();
+      if (soundObject) soundObject.unloadAsync();
+    };
+  }, [isConnected, db, name]);
 
-    return () => unsubscribeMessages && unsubscribeMessages();
-  }, [isConnected, db, name, navigation]);
+  const onSend = useCallback(
+    async (newMessages = []) => {
+      const message = newMessages[0];
+      try {
+        const messageToAdd = {
+          _id: message._id,
+          createdAt: message.createdAt,
+          user: {
+            _id: userID,
+            name: name,
+          },
+        };
 
-  const renderInputToolbar = (props) => {
-    if (isConnected) {
-      return <InputToolbar {...props} />;
+        if (message.text) messageToAdd.text = message.text;
+        if (message.image) messageToAdd.image = message.image;
+        if (message.location) messageToAdd.location = message.location;
+        if (message.audio) messageToAdd.audio = message.audio;
+
+        await addDoc(collection(db, "messages"), messageToAdd);
+      } catch (error) {
+        console.error("Error adding message to Firestore:", error);
+      }
+    },
+    [db, userID, name]
+  );
+
+  const cacheMessages = async (messagesToCache) => {
+    try {
+      if (messagesToCache && messagesToCache.length > 0) {
+        await AsyncStorage.setItem("messages", JSON.stringify(messagesToCache));
+      }
+    } catch (error) {
+      console.error("Error caching messages:", error.code, error.message);
     }
+  };
+
+  const loadCachedMessages = async () => {
+    try {
+      const cachedMessages = await AsyncStorage.getItem("messages");
+      if (cachedMessages !== null) {
+        setMessages(JSON.parse(cachedMessages));
+      }
+    } catch (error) {
+      console.error(
+        "Error loading messages from cache:",
+        error.code,
+        error.message
+      );
+    }
+  };
+
+  const renderBubble = (props) => {
     return (
-      <View style={styles.offlineInputToolbar}>
-        <Text style={styles.offlineTextInput}>No network connection</Text>
+      <Bubble
+        {...props}
+        wrapperStyle={{
+          right: {
+            backgroundColor: selectedColorScheme.bubbleColor,
+          },
+          left: {
+            backgroundColor: "#FFF",
+          },
+        }}
+        textStyle={{
+          right: {
+            color: selectedColorScheme.bubbleColorText,
+          },
+        }}
+        timeTextStyle={{
+          right: {
+            color: selectedColorScheme.bubbleColorText,
+          },
+          left: {
+            color: "Black",
+          },
+        }}
+        accessibilityLabel={`Message from ${props.currentMessage.user.name}: ${props.currentMessage.text}`}
+        accessibilityRole="text"
+      />
+    );
+  };
+
+  const renderAudioBubble = (props) => {
+    return (
+      <View {...props}>
+        <TouchableOpacity
+          style={{ backgroundColor: "#FF0", borderRadius: 10, margin: 5 }}
+          onPress={async () => {
+            const { sound } = await Audio.Sound.createAsync({
+              uri: props.currentMessage.audio,
+            });
+            await sound.playAsync();
+          }}
+        >
+          <Text style={{ textAlign: "center", color: "black", padding: 5 }}>
+            Play Sound
+          </Text>
+        </TouchableOpacity>
       </View>
     );
   };
 
-  const renderBubble = (props) => (
-    <Bubble
+  const renderMessageAudio = (props) => {
+    return (
+      <View {...props}>
+        <TouchableOpacity
+          style={{ backgroundColor: "#FF0", borderRadius: 10, margin: 5 }}
+          onPress={async () => {
+            if (soundObject) soundObject.unloadAsync();
+            const { sound } = await Audio.Sound.createAsync({
+              uri: props.currentMessage.audio,
+            });
+            soundObject = sound;
+            await sound.playAsync();
+          }}
+        >
+          <Text style={{ textAlign: "center", color: "black", padding: 5 }}>
+            Play Sound
+          </Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  const renderSystemMessage = (props) => (
+    <SystemMessage
       {...props}
-      wrapperStyle={{
-        right: { backgroundColor: "#000" },
-        left: { backgroundColor: "#FFF" },
+      textStyle={{
+        color: selectedColorScheme.systemMessageTextColor,
       }}
     />
   );
 
-  const renderAudioBubble = (props) => (
-    <TouchableOpacity
-      style={styles.audioBubble}
-      onPress={async () => {
-        try {
-          if (soundObject) soundObject.unloadAsync();
-          const { sound } = await Audio.Sound.createAsync({
-            uri: props.currentMessage.audio,
-          });
-          soundObject = sound;
-          await sound.playAsync();
-        } catch (error) {
-          console.error("Error playing audio:", error);
-        }
-      }}
-    >
-      <Text style={styles.audioText}>Play Sound</Text>
-    </TouchableOpacity>
-  );
-
-  const renderCustomActions = (props) => (
-    <CustomActions
+  const renderDay = (props) => (
+    <Day
       {...props}
-      storage={storage}
-      userID={userID}
-      name={name}
-      onSend={onSend}
+      textStyle={{
+        color: selectedColorScheme.systemMessageTextColor,
+      }}
     />
   );
+
+  const renderMessage = (props) => {
+    return (
+      <View>
+        {props.position === "left" && (
+          <Text
+            style={styles.nameText}
+            textStyle={{ coler: selectedColorScheme.systemMessageTextColor }}
+          >
+            {props.currentMessage.user.name}
+          </Text>
+        )}
+        <Message {...props} />
+      </View>
+    );
+  };
+
+  const renderSend = (props) => {
+    return <Send {...props} containerStyle={styles.sendContainer} />;
+  };
+
+  // Show an offline message in the input toolbar if there is no network connection
+  const renderInputToolbar = (props) => {
+    if (isConnected === true) {
+      return <InputToolbar {...props} />;
+    } else {
+      return (
+        <View style={styles.offlineInputToolbar}>
+          <Text style={styles.offlineTextInput}>No network connection</Text>
+        </View>
+      );
+    }
+  };
+
+  // Disable the composer if there is no network connection
+  const renderComposer = (props) => {
+    return (
+      <Composer
+        {...props}
+        textInputStyle={isConnected === false ? styles.offlineTextInput : null}
+        disableComposer={isConnected === false ? false : true}
+      />
+    );
+  };
+
+  const renderCustomActions = (props) => {
+    return (
+      <CustomActions
+        {...props}
+        storage={storage}
+        userID={userID}
+        name={name}
+        onSend={onSend}
+        wrapperStyle={styles.customActionsWrapper}
+        iconTextStyle={styles.customActionsIconText}
+      />
+    );
+  };
 
   const renderCustomView = (props) => {
     const { currentMessage } = props;
     if (currentMessage.location) {
       return (
         <MapView
-          style={styles.mapView}
+          style={{ width: 150, height: 100, borderRadius: 13, margin: 3 }}
           region={{
             latitude: currentMessage.location.latitude,
             longitude: currentMessage.location.longitude,
@@ -161,32 +284,41 @@ const Chat = ({ route, navigation, isConnected, storage }) => {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: background }]}>
-      {Platform.OS === "android" ? (
-        <KeyboardAvoidingView behavior="height" style={{ flex: 1 }}>
-          <GiftedChat
-            messages={messages}
-            onSend={onSend}
-            renderActions={renderCustomActions}
-            renderCustomView={renderCustomView}
-            renderBubble={renderBubble}
-            renderInputToolbar={renderInputToolbar}
-            renderMessageAudio={renderAudioBubble}
-            user={{ _id: userID, name }}
-          />
-        </KeyboardAvoidingView>
-      ) : (
-        <GiftedChat
-          messages={messages}
-          onSend={onSend}
-          renderActions={renderCustomActions}
-          renderCustomView={renderCustomView}
-          renderBubble={renderBubble}
-          renderInputToolbar={renderInputToolbar}
-          renderMessageAudio={renderAudioBubble}
-          user={{ _id: userID, name }}
-        />
-      )}
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: chatBackgroundColor }]}
+    >
+      {Platform.OS === "android" && <KeyboardAvoidingView behavior="padding" />}
+      <GiftedChat
+        messages={messages}
+        onSend={(messages) => onSend(messages)}
+        user={{
+          _id: userID,
+          name: name,
+        }}
+        renderBubble={renderBubble}
+        renderSystemMessage={renderSystemMessage}
+        renderDay={renderDay}
+        renderMessage={renderMessage}
+        renderInputToolbar={renderInputToolbar}
+        renderComposer={renderComposer}
+        renderActions={renderCustomActions}
+        renderCustomView={renderCustomView}
+        renderSend={renderSend}
+        renderMessageAudio={renderAudioBubble}
+        maxComposerHeight={100}
+        minComposerHeight={Platform.OS === "ios" ? 40 : 60}
+        textInputProps={{
+          importantForAccessibility: "yes",
+          accessible: true,
+          accessibilityRole: "text",
+          accessibilityHint: isConnected
+            ? "Type your message here"
+            : "No network connection",
+          accessibilityLabel: null,
+          multiline: true,
+          editable: isConnected,
+        }}
+      />
     </SafeAreaView>
   );
 };
@@ -195,9 +327,13 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  offlineTextInput: {
-    color: "black",
-    fontSize: 16,
+  keyboardAvoidingView: {
+    flex: 1,
+  },
+  nameText: {
+    fontSize: 12,
+    marginLeft: 10,
+    marginBottom: 2,
   },
   offlineInputToolbar: {
     backgroundColor: "lightgrey",
@@ -205,21 +341,24 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  mapView: {
-    width: 150,
-    height: 100,
-    borderRadius: 13,
-    margin: 3,
-  },
-  audioBubble: {
-    backgroundColor: "#FF0",
-    borderRadius: 10,
-    margin: 5,
-    padding: 10,
-  },
-  audioText: {
-    textAlign: "center",
+  offlineTextInput: {
     color: "black",
+    fontSize: 16,
+  },
+  customActionsWrapper: {
+    alignSelf: "center",
+    marginLeft: 0,
+    marginRight: 4,
+    marginBottom: 0,
+  },
+  customActionsIconText: {
+    fontSize: 20,
+  },
+  sendContainer: {
+    justifyContent: "center",
+    alignItems: "center",
+    alignSelf: "center",
+    marginRight: 4,
   },
 });
 
