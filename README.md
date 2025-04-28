@@ -1,12 +1,13 @@
-Welcome to Chatify!
+# Welcome to Chatify!
 
 Chatify is your go-to mobile chat app, enabling users to send messages, share images, and broadcast their location with ease.
 
-Project Name: Chatify
+# Project Name: Chatify
+
 Project Description
 ChatApp is a real-time messaging application built with React Native. The app allows users to enter their name, choose a background color for the chat interface, and start chatting with others in a simple and intuitive environment. It leverages React Navigation for seamless navigation between screens and Expo for building and testing the app.
 
-Key Features:
+# Key Features:
 
 User-friendly interface for starting a chat session
 Background color customization
@@ -21,7 +22,7 @@ Follow the steps below to set up and run the project locally on your machine.
 2. Install Dependencies
    In the project directory, install the dependencies using npm or yarn.
 
-Using npm:
+# Using npm:
 
 bash
 Copy code
@@ -36,7 +37,8 @@ This will open the Expo developer tools in your browser. You can then scan the Q
 4. Ensure you have Expo Go installed
    If you haven't already, install Expo Go on your mobile device from the App Store (iOS) or Google Play Store (Android).
 
-Project Dependencies
+# Project Dependencies
+
 React Native version: 0.66.x (Ensure you're using a compatible version of React Native for this project)
 JavaScript version: ES6 (Modern JavaScript features are used, including arrow functions, destructuring, and async/await)
 Expo SDK version: 44.x (Ensure you are using Expo SDK 44 or higher)
@@ -76,7 +78,8 @@ Commit your changes (git commit -am 'Add new feature').
 Push to the branch (git push origin feature-name).
 Create a new Pull Request.
 
-Table of Contents
+# Table of Contents
+
 Features
 Technical Requirements
 Getting Started
